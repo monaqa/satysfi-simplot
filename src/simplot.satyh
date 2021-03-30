@@ -4,32 +4,138 @@
 % See https://qiita.com/puripuri2100/items/ca0b054d38480f1bda61 for more details about the load order.
 
 % load standard list package
-@require: list
+@require: base/list-ext
+@require: pervasives
 
 % load float package from base library
 @require: base/float
 
+% chart のデータの表現方法
+type linegraphstyle = (|
+  % 隣り合う2つのデータ点が与えられたときに、それを線で結ぶ関数。
+  linef: point * point -> graphics list;
+  % 1点が与えられたときに、それを結ぶ関数。
+  pointf: point -> graphics list;
+|)
+
 module Simplot : sig
-  % Type declaration of module Simplot
 
-  val pi : float
+  % キャプションやグラフ本体を含む、図全体。
+  type chart
+  % 折れ線グラフや軸など。メイン描画領域に書くもの。
+  type graph
+  % 折れ線グラフに相当するもの
+  type linegraph
+  % 軸のグラフィックス
+  type axisline
 
-  val geo-mean : float list -> float
+  val new-chart: length -> length -> chart
+  val set-xlim: float -> float -> chart -> chart
+  val set-ylim: float -> float -> chart -> chart
+  val set-xlabel: inline-boxes -> chart -> chart
+  val set-ylabel: inline-boxes -> chart -> chart
+  val add-graph: graph -> chart -> chart
+  val add-graphs: graph list -> chart -> chart
+  val draw: chart -> inline-boxes
+
+  val new-line-graph: linegraphstyle -> (float * float) list -> graph
 
 end = struct
-  % Actual definitions
 
-  let pi = 3.1415926535897932384626433832795
+  type linegraph = (|
+    data: (float * float) list;
+    style: linegraphstyle;
+  |)
 
-  % function definition that is not exposed
-  let sum xs =
-    xs
-    |> List.fold-left (+.) 0.
+  type axisline = unit
 
-  let geo-mean xs =
-    xs
-    |> List.map Float.log
-    |> sum
-    |> Float.exp
+  type graph =
+    | LineGraph of linegraph
+    | AxisLine of axisline
+
+  type chart = (|
+    xlabel: inline-boxes option;
+    ylabel: inline-boxes option;
+    xlim: (float * float);
+    ylim: (float * float);
+    height: length;
+    width: length;
+    graphs: graph list;
+  |)
+
+% line graph
+
+  let new-line-graph lgsty data = LineGraph((| data = data; style = lgsty |))
+
+  let draw-line-graph chartinfo lg =
+    let (xmin, xmax) = chartinfo#xlim in
+    let (ymin, ymax) = chartinfo#ylim in
+
+    let points =
+      % float の組を length の組に置き換える。
+      let convertf (x, y) =
+        let xlen = chartinfo#width *' ( (x -. xmin) /. (xmax -. xmin) ) in
+        let ylen = chartinfo#height *' ( (y -. ymin) /. (ymax -. ymin) ) in
+        (xlen, ylen)
+      in
+      lg#data |> List.map convertf
+    in
+
+    let gr-line =
+      let aux pt prev _ =
+        match prev with
+        | Some(ptprev) -> lg#style#linef (ptprev, pt)
+        | None -> []
+      in
+      points |> List.map-adjacent aux |> List.concat
+    in
+
+    let gr-point =
+      points |> List.map (lg#style#pointf) |> List.concat
+    in
+
+    [gr-line; gr-point] |> List.concat
+
+% graph
+  let draw-graph chartinfo grph = match grph with
+    | LineGraph(linegraph) -> draw-line-graph chartinfo linegraph
+    | AxisLine(axisline) -> []
+
+% chart
+
+  let new-chart wid ht =
+    (|
+      xlabel = None;
+      ylabel = None;
+      xlim = (0., 1.);
+      ylim = (0., 1.);
+      height = ht;
+      width = wid;
+      graphs = [];
+    |)
+
+  let set-xlim min max cht = (| cht with xlim = (min, max) |)
+  let set-ylim min max cht = (| cht with ylim = (min, max) |)
+  let set-xlabel ib cht = (| cht with xlabel = Some(ib) |)
+  let set-ylabel ib cht = (| cht with ylabel = Some(ib) |)
+
+  let add-graphs grphs cht =
+    let graphs = List.append cht#graphs grphs in
+    (| cht with graphs = graphs |)
+  let add-graph grph = add-graphs [grph]
+
+  let draw cht =
+    % graph の graphics.
+    let chartinfo = (|
+      xlim = cht#xlim;
+      ylim = cht#ylim;
+      height = cht#height;
+      width = cht#width;
+    |)
+    in
+    let gr-graph = cht#graphs |> List.map (draw-graph chartinfo) |> List.concat in
+    inline-graphics (cht#width) (cht#height) 0pt (fun origin -> gr-graph |> List.map (shift-graphics origin))
+
+
 
 end
