@@ -1,3 +1,3 @@
-# satysfi-simplot
+# SATySFi Simplot package
 
-A great library_opam_template
+A **simp**le **plot**ing package for SATySFi.
