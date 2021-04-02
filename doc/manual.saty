@@ -27,27 +27,66 @@ document (|
 
   +fig-center(textbox {\eval(fun ctx -> Simplot.(
     % グラフの体裁
-    let linef (pt1, pt2) = [stroke 1pt Color.black (Gr.line pt1 pt2)] in
-    let pointf pt = [fill Color.blue (Gr.circle pt 1pt)] in
-    let graphstyle = (| linef = linef; pointf = pointf; |) in
+    let linef1 pth = [dashed-stroke 2pt (8pt, 4pt, 0pt) Color.black pth] in
+    let linef2 pth = [stroke 1pt Color.blue pth] in
+    let pointf pt = [] in
+    let graphstyle1 = (| linef = linef1; pointf = pointf; |) in
+    let graphstyle2 = (| linef = linef2; pointf = pointf; |) in
 
     % グラフの定義
-    let graph = new-line-graph graphstyle
-      (
-        linspace 0.0 6.283184 100
-          |> List.map (fun x -> (x, sin x))
-      )
+    let graph1 = new-line-graph graphstyle1
+      ( linspace 0.0 6.283184 1000 |> List.map (fun x -> (sin x, sin (2. *. x))))
     in
-    let chart = new-chart 300pt 200pt
+    let graph2 = new-line-graph graphstyle2
+      ( linspace 0.0 6.283184 1000 |> List.map (fun x -> (sin (3. *. x), sin (2. *. x))))
+    in
+    let chart = new-chart 200pt 200pt
       |> set-xlabel (read-inline ctx {${x} axis})
       |> set-ylabel (read-inline ctx {${y} axis})
-      |> set-xlim 0.0 6.283184
+      |> set-xlim (0.0-.1.0) 1.0
       |> set-ylim (0.0-.1.0) 1.0
-      |> add-graph graph
+      |> add-graph graph1
+      |> add-graph graph2
     in
 
     draw chart
   ));}
     |> frame 0.5pt Color.black
   );
+
+  % 良さげな API
+
+  % +fig-center(textbox {\eval(fun ctx -> (
+  % 
+  %   % グラフのデータ
+  %   let data-1 = linspace 0.0 6.283184 1000 |> List.map (fun x -> (x, sin x)) in
+  %   let data-2 = linspace 0.0 6.283184 1000 |> List.map (fun x -> (x, cos x)) in
+  % 
+  %   % グラフの体裁
+  %   let graphstyle-1 = LineStyle.solid ?:(| width = 1pt; |) Color.black in
+  %   let graphstyle-2 = LineStyle.dashed ?:(| width = 1pt; period = (8pt, 3pt); phase = 4pt |) Color.red in
+  %   let pointstyle-1 = PointStyle.circ ?:(| rad = 1pt; |) Color.black in
+  %   let pointstyle-2 = PointStyle.none in
+  % 
+  %   % 軸の体裁
+  %   let x-axis = Axis.new-custom-x
+  %     [0.; math-pi /. 2.; math-pi; math-pi *. 3. /. 2. ; 2 *. math-pi]
+  %       [{${0}}; {${\frac{π}{2}}}; {${π}}; {${\frac{3}{2}π}}; {${2π}}]
+  %   in
+  %   let y-axis = Axis.new-y in
+  % 
+  %   % 図
+  %   let chart = Chart.new 200pt 300pt
+  %     |> plot-line ?:(| legend = {${y = \sin x}} |) data-1 [graphstyle-1; pointstyle-1]
+  %     |> plot-line ?:(| legend = {${y = \cos x}} |) data-2 [graphstyle-2; pointstyle-2]
+  %     |> add-axis [x-axis; y-axis]
+  %     |> add-legend
+  %   in
+  % 
+  %   draw chart
+  % 
+  % ));}
+  %   |> frame 0.5pt Color.black
+  % );
+
 >

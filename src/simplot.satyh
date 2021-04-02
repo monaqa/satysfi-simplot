@@ -12,8 +12,8 @@
 
 % chart のデータの表現方法
 type linegraphstyle = (|
-  % 隣り合う2つのデータ点が与えられたときに、それを線で結ぶ関数。
-  linef: point * point -> graphics list;
+  % データ点を結ぶパスが与えられたときに、それを graphics にする関数。
+  linef: path -> graphics list;
   % 1点が与えられたときに、それを結ぶ関数。
   pointf: point -> graphics list;
 |)
@@ -22,6 +22,8 @@ module Simplot : sig
 
   % キャプションやグラフ本体を含む、図全体。
   type chart
+  % グラフの描画領域。
+  type canvas
   % 折れ線グラフや軸など。メイン描画領域に書くもの。
   type graph
   % 折れ線グラフに相当するもの
@@ -53,13 +55,17 @@ end = struct
     | LineGraph of linegraph
     | AxisLine of axisline
 
-  type chart = (|
-    xlabel: inline-boxes option;
-    ylabel: inline-boxes option;
+  type canvas = (|
     xlim: (float * float);
     ylim: (float * float);
     height: length;
     width: length;
+  |)
+
+  type chart = (|
+    xlabel: inline-boxes option;
+    ylabel: inline-boxes option;
+    canvas: canvas;
     graphs: graph list;
   |)
 
@@ -82,12 +88,20 @@ end = struct
     in
 
     let gr-line =
-      let aux pt prev _ =
-        match prev with
-        | Some(ptprev) -> lg#style#linef (ptprev, pt)
-        | None -> []
-      in
-      points |> List.map-adjacent aux |> List.concat
+      % let aux pt prev _ =
+      %   match prev with
+      %   | Some(ptprev) -> lg#style#linef (ptprev, pt)
+      %   | None -> []
+      % in
+      % points |> List.map-adjacent aux |> List.concat
+      match points with
+      | [] -> []
+      | point :: rest-points ->
+          let path = rest-points
+            |> List.fold-left (fun acc pt -> line-to pt acc)(start-path point) 
+            |> terminate-path
+          in
+          lg#style#linef path
     in
 
     let gr-point =
@@ -104,18 +118,22 @@ end = struct
 % chart
 
   let new-chart wid ht =
-    (|
-      xlabel = None;
-      ylabel = None;
+    let canvas = (|
       xlim = (0., 1.);
       ylim = (0., 1.);
       height = ht;
       width = wid;
+    |)
+    in
+    (|
+      xlabel = None;
+      ylabel = None;
+      canvas = canvas;
       graphs = [];
     |)
 
-  let set-xlim min max cht = (| cht with xlim = (min, max) |)
-  let set-ylim min max cht = (| cht with ylim = (min, max) |)
+  let set-xlim min max cht = (| cht with canvas = (| cht#canvas with xlim = (min, max)|) |)
+  let set-ylim min max cht = (| cht with canvas = (| cht#canvas with ylim = (min, max)|) |)
   let set-xlabel ib cht = (| cht with xlabel = Some(ib) |)
   let set-ylabel ib cht = (| cht with ylabel = Some(ib) |)
 
@@ -126,15 +144,9 @@ end = struct
 
   let draw cht =
     % graph の graphics.
-    let chartinfo = (|
-      xlim = cht#xlim;
-      ylim = cht#ylim;
-      height = cht#height;
-      width = cht#width;
-    |)
-    in
-    let gr-graph = cht#graphs |> List.map (draw-graph chartinfo) |> List.concat in
-    inline-graphics (cht#width) (cht#height) 0pt (fun origin -> gr-graph |> List.map (shift-graphics origin))
+    let gr-graph = cht#graphs |> List.map (draw-graph cht#canvas) |> List.concat in
+    inline-graphics (cht#canvas#width) (cht#canvas#height) 0pt
+      (fun origin -> gr-graph |> List.map (shift-graphics origin))
 
 
 
