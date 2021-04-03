@@ -1,153 +1,236 @@
-% .satyh files are loaded by the PDF backend.
-% .satyh-markdown and .saty-html files are loaded by the text backend for markdoown and html outputs, respectively.
-% A .satyg file is loaded when the corresponding .satyh or .satyh-* files are not loaded.
-% See https://qiita.com/puripuri2100/items/ca0b054d38480f1bda61 for more details about the load order.
-
 % load standard list package
 @require: base/list-ext
 @require: pervasives
 
-% load float package from base library
-@require: base/float
+@require: figbox/figbox
 
-% chart のデータの表現方法
-type linegraphstyle = (|
-  % データ点を結ぶパスが与えられたときに、それを graphics にする関数。
-  linef: path -> graphics list;
-  % 1点が与えられたときに、それを結ぶ関数。
-  pointf: point -> graphics list;
-|)
+@import: style
 
-module Simplot : sig
+% データ点が与えられたときに、実際にグラフ上で対応する点の座標を返す写像。
+type pointmap = float * float -> point
 
-  % キャプションやグラフ本体を含む、図全体。
-  type chart
-  % グラフの描画領域。
-  type canvas
-  % 折れ線グラフや軸など。メイン描画領域に書くもの。
+module Graph : sig
+
   type graph
-  % 折れ線グラフに相当するもの
-  type linegraph
-  % 軸のグラフィックス
-  type axisline
 
-  val new-chart: length -> length -> chart
-  val set-xlim: float -> float -> chart -> chart
-  val set-ylim: float -> float -> chart -> chart
-  val set-xlabel: inline-boxes -> chart -> chart
-  val set-ylabel: inline-boxes -> chart -> chart
-  val add-graph: graph -> chart -> chart
-  val add-graphs: graph list -> chart -> chart
-  val draw: chart -> inline-boxes
+  val line : (float * float) list -> LineGraphStyle.style list -> graph
 
-  val new-line-graph: linegraphstyle -> (float * float) list -> graph
+  val get-range : graph -> (| x: float * float; y: float * float|)
+  val draw-graph : pointmap -> graph -> graphics list
 
 end = struct
 
-  type linegraph = (|
-    data: (float * float) list;
-    style: linegraphstyle;
+  type graph = (|
+    range: (| x: float * float; y: float * float|);
+    grf: pointmap -> graphics list;
   |)
 
-  type axisline = unit
+  let line data lgstyles =
 
-  type graph =
-    | LineGraph of linegraph
-    | AxisLine of axisline
+    let range = data |> List.fold-left
+      (fun record datum ->(
+        let (x, y) = datum in
+        let (xmin, xmax) = record#x in
+        let (ymin, ymax) = record#y in
+        let xmin = if Float.(x < xmin) then x else xmin in
+        let xmax = if Float.(x > xmax) then x else xmax in
+        let ymin = if Float.(y < ymin) then y else ymin in
+        let ymax = if Float.(y > ymax) then y else ymax in
+        (| x = (xmin, xmax); y = (ymin, ymax) |)
+      ))
+      (| x = (0., 0.); y = (0., 0.)|)
+    in
+
+    let grf pointmap =
+      let points = data |> List.map pointmap in
+      lgstyles |> List.map (fun lgstyle -> LineGraphStyle.make-graphics lgstyle points)
+               |> List.concat
+    in
+    (|
+      range = range;
+      grf = grf;
+    |)
+
+  let get-range grph = grph#range
+  let draw-graph ptmap grph = grph#grf ptmap
+
+end
+
+module Axis : sig
+
+  type axis
+
+  % val new-x: axis
+  % val new-y: axis
+  val new-custom-x: (context -> context)?-> float list -> inline-text list -> axis
+  val new-custom-y: (context -> context)?-> float list -> inline-text list -> axis
+  
+  val draw-axis : (| x: float * float; y: float * float|) -> pointmap -> context -> axis -> graphics list
+end = struct
+
+  type axis = (| x: float * float; y: float * float|) -> pointmap -> context -> graphics list
+
+  let new-custom-x ?:ctxf vals its  range ptmap ctx =
+    let ctxf = ctxf |> Option.from (fun x -> x) in
+    let (xmin, xmax) = range#x in
+    let (ymin, ymax) = range#y in
+    let line =
+      [stroke 1pt Color.black (Gr.line (ptmap (xmin, ymin)) (ptmap (xmax, ymin)))]
+    in
+
+    let ticks =
+      let tickf xval =
+        let (x, y) = ptmap (xval, ymin) in
+        stroke 0.5pt Color.black
+          (Gr.line (x, y) (x, y -' 5pt))
+      in
+      vals |> List.map tickf
+    in
+
+    let ticklabels =
+      let ticklabelf (xval, it) =
+        let (x, y) = ptmap (xval, ymin) in
+        let ib = read-inline (ctxf ctx) it in
+        let (wid, ht, dp) = get-natural-metrics ib in
+        draw-text (x -' wid *' 0.5, y -' 7pt -' ht) ib
+      in
+      List.zip vals its |> List.map ticklabelf
+    in
+
+    [ticks; ticklabels; line] |> List.concat
+
+  let new-custom-y ?:ctxf vals its  range ptmap ctx =
+    let ctxf = ctxf |> Option.from (fun x -> x) in
+    let (xmin, xmax) = range#x in
+    let (ymin, ymax) = range#y in
+    let line =
+      [stroke 1pt Color.black (Gr.line (ptmap (xmin, ymin)) (ptmap (xmin, ymax)))]
+    in
+
+    let ticks =
+      let tickf yval =
+        let (x, y) = ptmap (xmin, yval) in
+        stroke 0.5pt Color.black
+          (Gr.line (x, y) (x -' 5pt, y))
+      in
+      vals |> List.map tickf
+    in
+
+    let ticklabels =
+      let ticklabelf (yval, it) =
+        let (x, y) = ptmap (xmin, yval) in
+        let ib = read-inline (ctxf ctx) it in
+        let (wid, ht, dp) = get-natural-metrics ib in
+        draw-text (x -' 7pt -' wid, y -' (ht -' dp) *' 0.5 ) ib
+      in
+      List.zip vals its |> List.map ticklabelf
+    in
+
+    [ticks; ticklabels; line] |> List.concat
+
+  let draw-axis range ptmap ctx axis = axis range ptmap ctx
+
+end
+
+module Chart : sig
+
+  type chart
+
+  val new : length -> length -> chart
+
+  val add-plot : Graph.graph -> chart -> chart
+  val add-plots : Graph.graph list -> chart -> chart
+
+  val add-axis : Axis.axis -> chart -> chart
+
+  val set-xlim : float -> float -> chart -> chart
+  val set-ylim : float -> float -> chart -> chart
+
+  val draw : chart -> FigBox.figbox
+
+end = struct
 
   type canvas = (|
-    xlim: (float * float);
-    ylim: (float * float);
+    xlim: (float * float) option;
+    ylim: (float * float) option;
     height: length;
     width: length;
   |)
 
   type chart = (|
-    xlabel: inline-boxes option;
-    ylabel: inline-boxes option;
     canvas: canvas;
-    graphs: graph list;
+    graphs: Graph.graph list;
+    axes: Axis.axis list;
   |)
 
-% line graph
-
-  let new-line-graph lgsty data = LineGraph((| data = data; style = lgsty |))
-
-  let draw-line-graph chartinfo lg =
-    let (xmin, xmax) = chartinfo#xlim in
-    let (ymin, ymax) = chartinfo#ylim in
-
-    let points =
-      % float の組を length の組に置き換える。
-      let convertf (x, y) =
-        let xlen = chartinfo#width *' ( (x -. xmin) /. (xmax -. xmin) ) in
-        let ylen = chartinfo#height *' ( (y -. ymin) /. (ymax -. ymin) ) in
-        (xlen, ylen)
-      in
-      lg#data |> List.map convertf
-    in
-
-    let gr-line =
-      % let aux pt prev _ =
-      %   match prev with
-      %   | Some(ptprev) -> lg#style#linef (ptprev, pt)
-      %   | None -> []
-      % in
-      % points |> List.map-adjacent aux |> List.concat
-      match points with
-      | [] -> []
-      | point :: rest-points ->
-          let path = rest-points
-            |> List.fold-left (fun acc pt -> line-to pt acc)(start-path point) 
-            |> terminate-path
-          in
-          lg#style#linef path
-    in
-
-    let gr-point =
-      points |> List.map (lg#style#pointf) |> List.concat
-    in
-
-    [gr-line; gr-point] |> List.concat
-
-% graph
-  let draw-graph chartinfo grph = match grph with
-    | LineGraph(linegraph) -> draw-line-graph chartinfo linegraph
-    | AxisLine(axisline) -> []
-
-% chart
-
-  let new-chart wid ht =
-    let canvas = (|
-      xlim = (0., 1.);
-      ylim = (0., 1.);
-      height = ht;
-      width = wid;
-    |)
-    in
+  let new ht wid =
     (|
-      xlabel = None;
-      ylabel = None;
-      canvas = canvas;
-      graphs = [];
+      canvas = (|
+        xlim = None;
+        ylim = None;
+        height = ht;
+        width = wid;
+      |);
+       graphs = [];
+       axes = [];
     |)
 
-  let set-xlim min max cht = (| cht with canvas = (| cht#canvas with xlim = (min, max)|) |)
-  let set-ylim min max cht = (| cht with canvas = (| cht#canvas with ylim = (min, max)|) |)
-  let set-xlabel ib cht = (| cht with xlabel = Some(ib) |)
-  let set-ylabel ib cht = (| cht with ylabel = Some(ib) |)
-
-  let add-graphs grphs cht =
+  let add-plots grphs cht =
     let graphs = List.append cht#graphs grphs in
     (| cht with graphs = graphs |)
-  let add-graph grph = add-graphs [grph]
+
+  let add-plot grph = add-plots [grph]
+
+  let set-xlim xmin xmax cht =
+    (|cht with canvas = (|cht#canvas with xlim = Some((xmin, xmax))|)|)
+  let set-ylim ymin ymax cht =
+    (|cht with canvas = (|cht#canvas with ylim = Some((ymin, ymax))|)|)
+
+  let add-axis axis cht =
+    let axes = List.append cht#axes [axis] in
+    (|cht with axes = axes|)
 
   let draw cht =
-    % graph の graphics.
-    let gr-graph = cht#graphs |> List.map (draw-graph cht#canvas) |> List.concat in
-    inline-graphics (cht#canvas#width) (cht#canvas#height) 0pt
-      (fun origin -> gr-graph |> List.map (shift-graphics origin))
 
+    let (xmin, xmax) = cht#canvas#xlim |> Option.from (
+      cht#graphs
+        |> List.map Graph.get-range
+        |> List.map (fun r -> r#x)
+        |> List.fold-left (fun (xminall, xmaxall) (xmin, xmax) ->
+        (
+          if Float.(xminall > xmin) then xmin else xminall,
+          if Float.(xmaxall < xmax) then xmax else xmaxall
+        )
+        ) (0., 0.)
+    )
+    in
+    let (ymin, ymax) = cht#canvas#ylim |> Option.from (
+      cht#graphs
+        |> List.map Graph.get-range
+        |> List.map (fun r -> r#y)
+        |> List.fold-left (fun (yminall, ymaxall) (ymin, ymax) ->
+        (
+          if Float.(yminall > ymin) then ymin else yminall,
+          if Float.(ymaxall < ymax) then ymax else ymaxall
+        )
+        ) (0., 0.)
+    )
+    in
 
+    let range = (| x = (xmin, xmax); y = (ymin, ymax) |) in
+
+    let ptmap (x, y) =
+      let xlen = cht#canvas#width *' ( (x -. xmin) /. (xmax -. xmin) ) in
+      let ylen = cht#canvas#height *' ( (y -. ymin) /. (ymax -. ymin) ) in
+      (xlen, ylen)
+    in
+
+    let ibf ctx =
+      let gr-graph = cht#graphs |> List.map (Graph.draw-graph ptmap) |> List.concat in
+      let gr-axis = cht#axes |> List.map (Axis.draw-axis range ptmap ctx) |> List.concat in
+      inline-graphics (cht#canvas#width) (cht#canvas#height) 0pt
+        (fun origin -> [gr-graph; gr-axis] |> List.concat |> List.map (shift-graphics origin))
+    in
+    FigBox.rawbox ibf
 
 end

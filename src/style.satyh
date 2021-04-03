@@ -1,0 +1,85 @@
+% load standard list package
+@require: base/list-ext
+@require: pervasives
+@require: gr
+
+% 折れ線グラフなどにおける線の体裁。
+module LineGraphStyle : sig
+
+  type style
+
+  % 実線
+  val solid  : 'opts ?-> color -> style
+    constraint 'opts :: (|
+      width : length
+    |)
+
+  % 破線
+  val dashed : 'opts ?-> color -> style
+    constraint 'opts :: (|
+      width : length;
+      period : length * length;
+      phase : length;
+    |)
+
+  val circ : 'opts ?-> color -> style
+    constraint 'opts :: (|
+      % 基準長。ここでは直径のこと。
+      scale : length
+    |)
+
+  val none: style
+
+  val make-graphics: style -> point list -> graphics list
+
+end = struct
+
+  type style = point list -> graphics list
+
+  let make-graphics lstyle = lstyle
+
+  let solid ?:opts clr  pts =
+    % let opts = opts |> Option.from (| width = 1pt |) in
+    let width = match opts with
+      | Some(opts) -> opts#width
+      | None -> 1pt
+    in
+    match pts with
+    | [] -> []
+    | point :: rest-points ->
+        let path = rest-points
+          |> List.fold-left (fun acc pt -> line-to pt acc)(start-path point)
+          |> terminate-path
+        in
+        [stroke width clr path]
+
+  let dashed ?:opts clr  pts =
+    let (width, (d1, d2), phase) = match opts with
+      | Some(opts) -> (opts#width, opts#period, opts#phase)
+      | None -> (1pt, (8pt, 3.6pt), 0pt)
+    in
+
+    match pts with
+    | [] -> []
+    | point :: rest-points ->
+        let path = rest-points
+          |> List.fold-left (fun acc pt -> line-to pt acc)(start-path point)
+          |> terminate-path
+        in
+        [dashed-stroke width (d1, d2, phase) clr path]
+
+  let none pts = []
+
+  let circ ?:opts clr  pts =
+    let scale = match opts with
+      | Some(opts) -> opts#scale
+      | None -> 2pt
+    in
+
+    let rad = scale *' 0.5 in
+
+    let pt2grf pt = [fill clr (Gr.circle pt rad)] in
+
+    pts |> List.map pt2grf |> List.concat
+
+end
